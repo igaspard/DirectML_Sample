@@ -108,50 +108,44 @@ void DirectMLProcessor::CloseExecuteResetWait()
     THROW_IF_FAILED(m_commandList->Reset(m_commandAllocator.Get(), nullptr));
 }
 
-void DirectMLProcessor::SetTensorData(std::string tensor_name, uint32_t *shapes, DML_TENSOR_DATA_TYPE type,
-                                      const void *data, size_t size)
+void DirectMLProcessor::SetTensorData(std::string name, uint32_t *shapes, DML_TENSOR_DATA_TYPE type, const void *data,
+                                      size_t size)
 {
-    std::cout << "Enter SetTensorData " << tensor_name << std::endl;
-    for (int i = 0; i < 4; i++)
-        m_tensorSizes[i] = shapes[i];
-    m_tensorElementCount = m_tensorSizes[0] * m_tensorSizes[1] * m_tensorSizes[2] * m_tensorSizes[3];
-    m_desc = {DML_TENSOR_DATA_TYPE_FLOAT32, {m_tensorSizes[0], m_tensorSizes[1], m_tensorSizes[2], m_tensorSizes[3]}};
-    m_tensorBufferSize = m_desc.totalTensorSizeInBytes;
-    std::wcout << "m_tensorBufferSize: " << m_tensorBufferSize << std::endl;
+    std::cout << "Enter SetTensorData " << name << std::endl;
 
-    ComPtr<ID3D12Resource> tensorResource;
-    if (m_tensorResourceMap.find(tensor_name) == m_tensorResourceMap.end())
+    ComPtr<ID3D12Resource> tensorResource, uploadBuffer;
+    if (m_tensorInfoMap.find(name) == m_tensorInfoMap.end())
     {
+        std::cout << "Tensor " << name << " not found" << std::endl;
+        m_tensorInfoMap[name] = new TensorInfo();
+
+        for (int i = 0; i < 4; i++)
+            m_tensorInfoMap[name]->shapes[i] = shapes[i];
+
+        m_tensorInfoMap[name]->elementCount = shapes[0] * shapes[1] * shapes[2] * shapes[3];
+        m_tensorInfoMap[name]->desc = {DML_TENSOR_DATA_TYPE_FLOAT32, {shapes[0], shapes[1], shapes[2], shapes[3]}};
+        std::wcout << "Tensor Buffer Size: " << m_tensorInfoMap[name]->desc.totalTensorSizeInBytes << std::endl;
+
         THROW_IF_FAILED(m_d3D12Device->CreateCommittedResource(
-            &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
-            D3D12_HEAP_FLAG_NONE,
-            &CD3DX12_RESOURCE_DESC::Buffer(m_tensorBufferSize, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS),
-            D3D12_RESOURCE_STATE_COPY_DEST,
-            nullptr,
-            IID_PPV_ARGS(tensorResource.GetAddressOf())));
-        m_tensorResourceMap[tensor_name] = tensorResource;
-        std::cout << "Tensor " << tensor_name << " created: " << m_tensorResourceMap[tensor_name].GetAddressOf() <<
-        std::endl;
-    } else {
-        std::cout << "Tensor " << tensor_name << " already exists" << std::endl;
-        tensorResource = m_tensorResourceMap[tensor_name];
+            &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT), D3D12_HEAP_FLAG_NONE,
+            &CD3DX12_RESOURCE_DESC::Buffer(m_tensorInfoMap[name]->desc.totalTensorSizeInBytes,
+                                           D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS),
+            D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(tensorResource.GetAddressOf())));
+        m_tensorInfoMap[name]->resource = tensorResource;
+        std::cout << "Tensor " << name << " created: " << m_tensorInfoMap[name]->resource.GetAddressOf() << std::endl;
+
+        THROW_IF_FAILED(m_d3D12Device->CreateCommittedResource(
+            &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD), D3D12_HEAP_FLAG_NONE,
+            &CD3DX12_RESOURCE_DESC::Buffer(m_tensorInfoMap[name]->desc.totalTensorSizeInBytes),
+            D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(uploadBuffer.GetAddressOf())));
+        m_tensorInfoMap[name]->uploadResource = uploadBuffer;
+        std::cout << "Upload Buffer created: " << m_tensorInfoMap[name]->uploadResource.GetAddressOf() << std::endl;
     }
-
-    ComPtr<ID3D12Resource> uploadBuffer;
-    if (m_tensorUploadResourceMap.find(tensor_name) == m_tensorUploadResourceMap.end())
+    else
     {
-        THROW_IF_FAILED(m_d3D12Device->CreateCommittedResource(
-            &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
-            D3D12_HEAP_FLAG_NONE,
-            &CD3DX12_RESOURCE_DESC::Buffer(m_tensorBufferSize),
-            D3D12_RESOURCE_STATE_GENERIC_READ,
-            nullptr,
-            IID_PPV_ARGS(uploadBuffer.GetAddressOf())));
-        m_tensorUploadResourceMap[tensor_name] = uploadBuffer;
-        std::cout << "Upload buffer for tensor " << tensor_name << " created: " << m_tensorUploadResourceMap[tensor_name].GetAddressOf() << std::endl;
-    } else {
-        std::cout << "Upload buffer for tensor " << tensor_name << " already exists" << std::endl;
-        uploadBuffer = m_tensorUploadResourceMap[tensor_name];
+        std::cout << "Tensor " << name << " already exists" << std::endl;
+        tensorResource = m_tensorInfoMap[name]->resource;
+        uploadBuffer = m_tensorInfoMap[name]->uploadResource;
     }
 
     D3D12_SUBRESOURCE_DATA tensorSubresourceData{};
@@ -168,47 +162,47 @@ void DirectMLProcessor::SetTensorData(std::string tensor_name, uint32_t *shapes,
                                                                             D3D12_RESOURCE_STATE_UNORDERED_ACCESS));
 }
 
-void DirectMLProcessor::GetTensorData(std::string tensor_name, uint32_t *shapes, DML_TENSOR_DATA_TYPE type, void *data,
+void DirectMLProcessor::GetTensorData(std::string name, uint32_t *shapes, DML_TENSOR_DATA_TYPE type, void *data,
                                       size_t size)
 {
-    std::cout << "Enter GetTensorData " << tensor_name << std::endl;
-    // if (m_tensorResourceMap.find(tensor_name) == m_tensorResourceMap.end())
-    // {
-    //     std::cout << "Tensor " << tensor_name << " not found" << std::endl;
-    //     return;
-    // }
-    // std::cout << "Tensor " << tensor_name << " : " << m_tensorResourceMap[tensor_name].GetAddressOf() << std::endl;
+    std::cout << "Enter GetTensorData " << name << std::endl;
+
+    if (m_tensorInfoMap.find(name) == m_tensorInfoMap.end())
+    {
+        std::cout << "Tensor " << name << " not found" << std::endl;
+        return;
+    }
     // The output buffer now contains the result of the identity operator,
     // so read it back if you want the CPU to access it.
     ComPtr<ID3D12Resource> readbackBuffer;
     THROW_IF_FAILED(m_d3D12Device->CreateCommittedResource(
         &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_READBACK), D3D12_HEAP_FLAG_NONE,
-        &CD3DX12_RESOURCE_DESC::Buffer(m_tensorBufferSize), D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+        &CD3DX12_RESOURCE_DESC::Buffer(m_tensorInfoMap[name]->desc.totalTensorSizeInBytes), D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
         IID_PPV_ARGS(readbackBuffer.GetAddressOf())));
 
-    m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(m_outputBuffer[0].Get(),
+    m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(m_tensorInfoMap[name]->resource.Get(),
                                                                             D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
                                                                             D3D12_RESOURCE_STATE_COPY_SOURCE));
 
-    m_commandList->CopyResource(readbackBuffer.Get(), m_outputBuffer[0].Get());
+    m_commandList->CopyResource(readbackBuffer.Get(), m_tensorInfoMap[name]->resource.Get());
 
     CloseExecuteResetWait();
 
-    D3D12_RANGE tensorBufferRange{0, static_cast<SIZE_T>(m_tensorBufferSize)};
+    D3D12_RANGE tensorBufferRange{0, static_cast<SIZE_T>(m_tensorInfoMap[name]->desc.totalTensorSizeInBytes)};
     FLOAT *outputBufferData{};
     THROW_IF_FAILED(readbackBuffer->Map(0, &tensorBufferRange, reinterpret_cast<void **>(&outputBufferData)));
 
     memcpy(data, outputBufferData, size);
 
-    std::wstring outputString = L"output tensor: ";
-    for (size_t tensorElementIndex{0}; tensorElementIndex < m_tensorElementCount;
-         ++tensorElementIndex, ++outputBufferData)
-    {
-        outputString += std::to_wstring(*outputBufferData) + L' ';
-    }
+    // std::wstring outputString = L"output tensor: ";
+    // for (size_t tensorElementIndex{0}; tensorElementIndex < m_tensorInfoMap[name]->elementCount;
+    //      ++tensorElementIndex, ++outputBufferData)
+    // {
+    //     outputString += std::to_wstring(*outputBufferData) + L' ';
+    // }
 
-    std::wcout << outputString << std::endl;
-    OutputDebugStringW(outputString.c_str());
+    // std::wcout << outputString << std::endl;
+    // OutputDebugStringW(outputString.c_str());
 
     D3D12_RANGE emptyRange{0, 0};
     readbackBuffer->Unmap(0, &emptyRange);
@@ -216,9 +210,16 @@ void DirectMLProcessor::GetTensorData(std::string tensor_name, uint32_t *shapes,
 
 void DirectMLProcessor::ElementWiseAdd(std::string src0, std::string src1, std::string dst)
 {
+    if (m_tensorInfoMap.find(src0) == m_tensorInfoMap.end() || m_tensorInfoMap.find(src1) == m_tensorInfoMap.end() ||
+        m_tensorInfoMap.find(dst) == m_tensorInfoMap.end()) 
+    {
+        std::cout << "Tensor not found" << std::endl;
+        return;
+    }
+    
     dml::Graph graph(m_dmlDevice.Get());
-    dml::Expression input = dml::InputTensor(graph, 0, m_desc);
-    dml::Expression input2 = dml::InputTensor(graph, 1, m_desc);
+    dml::Expression input = dml::InputTensor(graph, 0, m_tensorInfoMap[src0]->desc);
+    dml::Expression input2 = dml::InputTensor(graph, 1, m_tensorInfoMap[src1]->desc);
     dml::Expression output = dml::Add(input, input2);
 
     ComPtr<IDMLCompiledOperator> dmlCompiledOperator;
@@ -335,36 +336,18 @@ void DirectMLProcessor::ElementWiseAdd(std::string src0, std::string src1, std::
     }
 
     // Create tensor buffers for output/readback of the tensor elements.
-    if (m_tensorResourceMap.find(src0) == m_tensorResourceMap.end())
-    {
-        std::cout << "Tensor " << src0 << " not found" << std::endl;
-        return;
-    }
-    std::cout << "Tensor " << src0 << " : " << m_tensorResourceMap[src0].GetAddressOf() << std::endl;
-    DML_BUFFER_BINDING inputBufferBinding{m_tensorResourceMap[src0].Get(), 0, m_tensorBufferSize};
+    
+    DML_BUFFER_BINDING inputBufferBinding{m_tensorInfoMap[src0]->resource.Get(), 0, m_tensorInfoMap[src0]->desc.totalTensorSizeInBytes};
     DML_BINDING_DESC inputBindingDesc{DML_BINDING_TYPE_BUFFER, &inputBufferBinding};
 
-    if (m_tensorResourceMap.find(src1) == m_tensorResourceMap.end())
-    {
-        std::cout << "Tensor " << src1 << " not found" << std::endl;
-        return;
-    }
-    std::cout << "Tensor " << src1 << " : " << m_tensorResourceMap[src1].GetAddressOf() << std::endl;
-    DML_BUFFER_BINDING inputBufferBinding2{m_tensorResourceMap[src1].Get(), 0, m_tensorBufferSize};
+    DML_BUFFER_BINDING inputBufferBinding2{m_tensorInfoMap[src1]->resource.Get(), 0, m_tensorInfoMap[src1]->desc.totalTensorSizeInBytes};
     DML_BINDING_DESC inputBindingDesc2{DML_BINDING_TYPE_BUFFER, &inputBufferBinding2};
 
     DML_BINDING_DESC inputBindingDescs[] = {inputBindingDesc, inputBindingDesc2};
     dmlBindingTable->BindInputs(2, inputBindingDescs);
     std::cout << "Binding inputs" << std::endl;
 
-    // std::cout << "Tensor dst: " << dst << " : " << m_tensorResourceMap[dst].GetAddressOf() << std::endl;
-    // ComPtr<ID3D12Resource> outputBuffer;
-    THROW_IF_FAILED(m_d3D12Device->CreateCommittedResource(
-        &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT), D3D12_HEAP_FLAG_NONE,
-        &CD3DX12_RESOURCE_DESC::Buffer(m_tensorBufferSize, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS),
-        D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr, IID_PPV_ARGS(m_outputBuffer[0].GetAddressOf())));
-
-    DML_BUFFER_BINDING outputBufferBinding{m_outputBuffer[0].Get(), 0, m_tensorBufferSize};
+    DML_BUFFER_BINDING outputBufferBinding{m_tensorInfoMap[dst]->resource.Get(), 0, m_tensorInfoMap[dst]->desc.totalTensorSizeInBytes};
     DML_BINDING_DESC outputBindingDesc{DML_BINDING_TYPE_BUFFER, &outputBufferBinding};
     dmlBindingTable->BindOutputs(1, &outputBindingDesc);
     std::cout << "Binding outputs" << std::endl;
