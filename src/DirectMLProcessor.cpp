@@ -1,11 +1,12 @@
 #include "DirectMLProcessor.hpp"
 
-#include <dxcore_interface.h>
-#include <dxcore.h>
-#include <iostream>
 #include <algorithm>
+#include <dxcore.h>
+#include <dxcore_interface.h>
+#include <iostream>
 
-#pragma warning(disable : 4238) // References to temporary classes are okay because they are only used as function parameters.
+#pragma warning(                                                                                                       \
+    disable : 4238) // References to temporary classes are okay because they are only used as function parameters.
 
 using Microsoft::WRL::ComPtr;
 
@@ -41,43 +42,34 @@ void DirectMLProcessor::InitializeDirectML(bool forceNpu)
         }
     }
 
-    THROW_IF_FAILED(D3D12CreateDevice(
-        adapter.Get(),
-        D3D_FEATURE_LEVEL_1_0_CORE,
-        IID_PPV_ARGS(m_d3D12Device.ReleaseAndGetAddressOf())));
+    THROW_IF_FAILED(D3D12CreateDevice(adapter.Get(), D3D_FEATURE_LEVEL_1_0_CORE,
+                                      IID_PPV_ARGS(m_d3D12Device.ReleaseAndGetAddressOf())));
 
     D3D12_COMMAND_QUEUE_DESC commandQueueDesc{};
     commandQueueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
     commandQueueDesc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
 
-    THROW_IF_FAILED(m_d3D12Device->CreateCommandQueue(
-        &commandQueueDesc,
-        IID_PPV_ARGS(m_commandQueue.ReleaseAndGetAddressOf())));
+    THROW_IF_FAILED(
+        m_d3D12Device->CreateCommandQueue(&commandQueueDesc, IID_PPV_ARGS(m_commandQueue.ReleaseAndGetAddressOf())));
 
-    THROW_IF_FAILED(m_d3D12Device->CreateCommandAllocator(
-        D3D12_COMMAND_LIST_TYPE_DIRECT,
-        IID_PPV_ARGS(m_commandAllocator.ReleaseAndGetAddressOf())));
+    THROW_IF_FAILED(m_d3D12Device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT,
+                                                          IID_PPV_ARGS(m_commandAllocator.ReleaseAndGetAddressOf())));
 
-    THROW_IF_FAILED(m_d3D12Device->CreateCommandList(
-        0,
-        D3D12_COMMAND_LIST_TYPE_DIRECT,
-        m_commandAllocator.Get(),
-        nullptr,
-        IID_PPV_ARGS(m_commandList.ReleaseAndGetAddressOf())));
+    THROW_IF_FAILED(m_d3D12Device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, m_commandAllocator.Get(),
+                                                     nullptr, IID_PPV_ARGS(m_commandList.ReleaseAndGetAddressOf())));
 
     DML_CREATE_DEVICE_FLAGS dmlCreateDeviceFlags = DML_CREATE_DEVICE_FLAG_NONE;
 #if defined(_DEBUG)
     // If the project is in a debug build, then enable debugging via DirectML debug layers with this flag.
     dmlCreateDeviceFlags |= DML_CREATE_DEVICE_FLAG_DEBUG;
 #endif
-    THROW_IF_FAILED(DMLCreateDevice(
-        m_d3D12Device.Get(),
-        dmlCreateDeviceFlags,
-        IID_PPV_ARGS(m_dmlDevice.GetAddressOf())));
+    THROW_IF_FAILED(
+        DMLCreateDevice(m_d3D12Device.Get(), dmlCreateDeviceFlags, IID_PPV_ARGS(m_dmlDevice.GetAddressOf())));
 
     DML_FEATURE_QUERY_TENSOR_DATA_TYPE_SUPPORT fp16Query = {DML_TENSOR_DATA_TYPE_FLOAT16};
     DML_FEATURE_DATA_TENSOR_DATA_TYPE_SUPPORT fp16Supported = {};
-    THROW_IF_FAILED(m_dmlDevice->CheckFeatureSupport(DML_FEATURE_TENSOR_DATA_TYPE_SUPPORT, sizeof(fp16Query), &fp16Query, sizeof(fp16Supported), &fp16Supported));
+    THROW_IF_FAILED(m_dmlDevice->CheckFeatureSupport(DML_FEATURE_TENSOR_DATA_TYPE_SUPPORT, sizeof(fp16Query),
+                                                     &fp16Query, sizeof(fp16Supported), &fp16Supported));
     if (fp16Supported.IsSupported)
     {
         std::wcout << L"FP16 is supported." << std::endl;
@@ -102,10 +94,7 @@ void DirectMLProcessor::CloseExecuteResetWait()
     m_commandQueue->ExecuteCommandLists(ARRAYSIZE(commandLists), commandLists);
 
     ComPtr<ID3D12Fence> d3D12Fence;
-    THROW_IF_FAILED(m_d3D12Device->CreateFence(
-        0,
-        D3D12_FENCE_FLAG_NONE,
-        IID_PPV_ARGS(d3D12Fence.GetAddressOf())));
+    THROW_IF_FAILED(m_d3D12Device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(d3D12Fence.GetAddressOf())));
 
     wil::unique_handle fenceEventHandle(::CreateEvent(nullptr, true, false, nullptr));
     THROW_LAST_ERROR_IF_NULL(fenceEventHandle);
@@ -119,7 +108,8 @@ void DirectMLProcessor::CloseExecuteResetWait()
     THROW_IF_FAILED(m_commandList->Reset(m_commandAllocator.Get(), nullptr));
 }
 
-void DirectMLProcessor::SetTensorData(std::string tensor_name, uint32_t *shapes, DML_TENSOR_DATA_TYPE type, const void *data, size_t size)
+void DirectMLProcessor::SetTensorData(std::string tensor_name, uint32_t *shapes, DML_TENSOR_DATA_TYPE type,
+                                      const void *data, size_t size)
 {
     std::cout << "Enter SetTensorData " << tensor_name << std::endl;
     for (int i = 0; i < 4; i++)
@@ -140,7 +130,8 @@ void DirectMLProcessor::SetTensorData(std::string tensor_name, uint32_t *shapes,
     //         nullptr,
     //         IID_PPV_ARGS(tensorResource.GetAddressOf())));
     //     m_tensorResourceMap[tensor_name] = tensorResource;
-    //     std::cout << "Tensor " << tensor_name << " created: " << m_tensorResourceMap[tensor_name].GetAddressOf() << std::endl;
+    //     std::cout << "Tensor " << tensor_name << " created: " << m_tensorResourceMap[tensor_name].GetAddressOf() <<
+    //     std::endl;
     // } else {
     //     std::cout << "Tensor " << tensor_name << " already exists" << std::endl;
     // }
@@ -150,52 +141,37 @@ void DirectMLProcessor::SetTensorData(std::string tensor_name, uint32_t *shapes,
     if (tensor_name.compare("add0") == 0)
     {
         THROW_IF_FAILED(m_d3D12Device->CreateCommittedResource(
-            &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
-            D3D12_HEAP_FLAG_NONE,
-            &CD3DX12_RESOURCE_DESC::Buffer(m_tensorBufferSize),
-            D3D12_RESOURCE_STATE_GENERIC_READ,
-            nullptr,
+            &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD), D3D12_HEAP_FLAG_NONE,
+            &CD3DX12_RESOURCE_DESC::Buffer(m_tensorBufferSize), D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
             IID_PPV_ARGS(m_uploadBuffer[0].GetAddressOf())));
         uploadBuffer = m_uploadBuffer[0];
 
         THROW_IF_FAILED(m_d3D12Device->CreateCommittedResource(
-            &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
-            D3D12_HEAP_FLAG_NONE,
+            &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT), D3D12_HEAP_FLAG_NONE,
             &CD3DX12_RESOURCE_DESC::Buffer(m_tensorBufferSize, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS),
-            D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
-            nullptr,
-            IID_PPV_ARGS(m_inputBuffer[0].GetAddressOf())));
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr, IID_PPV_ARGS(m_inputBuffer[0].GetAddressOf())));
         tensorResource = m_inputBuffer[0];
     }
     else if (tensor_name.compare("add1") == 0)
     {
         THROW_IF_FAILED(m_d3D12Device->CreateCommittedResource(
-            &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
-            D3D12_HEAP_FLAG_NONE,
-            &CD3DX12_RESOURCE_DESC::Buffer(m_tensorBufferSize),
-            D3D12_RESOURCE_STATE_GENERIC_READ,
-            nullptr,
+            &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD), D3D12_HEAP_FLAG_NONE,
+            &CD3DX12_RESOURCE_DESC::Buffer(m_tensorBufferSize), D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
             IID_PPV_ARGS(m_uploadBuffer[1].GetAddressOf())));
         uploadBuffer = m_uploadBuffer[1];
 
         THROW_IF_FAILED(m_d3D12Device->CreateCommittedResource(
-            &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
-            D3D12_HEAP_FLAG_NONE,
+            &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT), D3D12_HEAP_FLAG_NONE,
             &CD3DX12_RESOURCE_DESC::Buffer(m_tensorBufferSize, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS),
-            D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
-            nullptr,
-            IID_PPV_ARGS(m_inputBuffer[1].GetAddressOf())));
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr, IID_PPV_ARGS(m_inputBuffer[1].GetAddressOf())));
         tensorResource = m_inputBuffer[1];
     }
     else if (tensor_name.compare("dst") == 0)
     {
         THROW_IF_FAILED(m_d3D12Device->CreateCommittedResource(
-            &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
-            D3D12_HEAP_FLAG_NONE,
+            &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT), D3D12_HEAP_FLAG_NONE,
             &CD3DX12_RESOURCE_DESC::Buffer(m_tensorBufferSize, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS),
-            D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
-            nullptr,
-            IID_PPV_ARGS(m_outputBuffer[0].GetAddressOf())));
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr, IID_PPV_ARGS(m_outputBuffer[0].GetAddressOf())));
         tensorResource = m_outputBuffer[0];
     }
 
@@ -205,24 +181,16 @@ void DirectMLProcessor::SetTensorData(std::string tensor_name, uint32_t *shapes,
     tensorSubresourceData.SlicePitch = tensorSubresourceData.RowPitch;
 
     // Upload the input tensor to the GPU.
-    ::UpdateSubresources(
-        m_commandList.Get(),
-        tensorResource.Get(),
-        uploadBuffer.Get(),
-        0,
-        0,
-        1,
-        &tensorSubresourceData);
+    ::UpdateSubresources(m_commandList.Get(), tensorResource.Get(), uploadBuffer.Get(), 0, 0, 1,
+                         &tensorSubresourceData);
 
-    m_commandList->ResourceBarrier(
-        1,
-        &CD3DX12_RESOURCE_BARRIER::Transition(
-            tensorResource.Get(),
-            D3D12_RESOURCE_STATE_COPY_DEST,
-            D3D12_RESOURCE_STATE_UNORDERED_ACCESS));
+    m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(tensorResource.Get(),
+                                                                            D3D12_RESOURCE_STATE_COPY_DEST,
+                                                                            D3D12_RESOURCE_STATE_UNORDERED_ACCESS));
 }
 
-void DirectMLProcessor::GetTensorData(std::string tensor_name, uint32_t *shapes, DML_TENSOR_DATA_TYPE type, void *data, size_t size)
+void DirectMLProcessor::GetTensorData(std::string tensor_name, uint32_t *shapes, DML_TENSOR_DATA_TYPE type, void *data,
+                                      size_t size)
 {
     std::cout << "Enter GetTensorData " << tensor_name << std::endl;
     // if (m_tensorResourceMap.find(tensor_name) == m_tensorResourceMap.end())
@@ -235,19 +203,13 @@ void DirectMLProcessor::GetTensorData(std::string tensor_name, uint32_t *shapes,
     // so read it back if you want the CPU to access it.
     ComPtr<ID3D12Resource> readbackBuffer;
     THROW_IF_FAILED(m_d3D12Device->CreateCommittedResource(
-        &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_READBACK),
-        D3D12_HEAP_FLAG_NONE,
-        &CD3DX12_RESOURCE_DESC::Buffer(m_tensorBufferSize),
-        D3D12_RESOURCE_STATE_COPY_DEST,
-        nullptr,
+        &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_READBACK), D3D12_HEAP_FLAG_NONE,
+        &CD3DX12_RESOURCE_DESC::Buffer(m_tensorBufferSize), D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
         IID_PPV_ARGS(readbackBuffer.GetAddressOf())));
 
-    m_commandList->ResourceBarrier(
-        1,
-        &CD3DX12_RESOURCE_BARRIER::Transition(
-            m_outputBuffer[0].Get(),
-            D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
-            D3D12_RESOURCE_STATE_COPY_SOURCE));
+    m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(m_outputBuffer[0].Get(),
+                                                                            D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+                                                                            D3D12_RESOURCE_STATE_COPY_SOURCE));
 
     m_commandList->CopyResource(readbackBuffer.Get(), m_outputBuffer[0].Get());
 
@@ -260,7 +222,8 @@ void DirectMLProcessor::GetTensorData(std::string tensor_name, uint32_t *shapes,
     memcpy(data, outputBufferData, size);
 
     std::wstring outputString = L"output tensor: ";
-    for (size_t tensorElementIndex{0}; tensorElementIndex < m_tensorElementCount; ++tensorElementIndex, ++outputBufferData)
+    for (size_t tensorElementIndex{0}; tensorElementIndex < m_tensorElementCount;
+         ++tensorElementIndex, ++outputBufferData)
     {
         outputString += std::to_wstring(*outputBufferData) + L' ';
     }
@@ -285,16 +248,13 @@ void DirectMLProcessor::ElementWiseAdd(std::string src0, std::string src1, std::
 
     ComPtr<IDMLOperatorInitializer> dmlOpInitializer;
     IDMLCompiledOperator *dmlCompiledOperators[] = {dmlCompiledOperator.Get()};
-    THROW_IF_FAILED(m_dmlDevice->CreateOperatorInitializer(
-        ARRAYSIZE(dmlCompiledOperators),
-        dmlCompiledOperators,
-        IID_PPV_ARGS(dmlOpInitializer.GetAddressOf())));
+    THROW_IF_FAILED(m_dmlDevice->CreateOperatorInitializer(ARRAYSIZE(dmlCompiledOperators), dmlCompiledOperators,
+                                                           IID_PPV_ARGS(dmlOpInitializer.GetAddressOf())));
 
     DML_BINDING_PROPERTIES initializeBindingProperties = dmlOpInitializer->GetBindingProperties();
     DML_BINDING_PROPERTIES executeBindingProperties = dmlCompiledOperator->GetBindingProperties();
-    UINT descriptorCount = std::max(
-        initializeBindingProperties.RequiredDescriptorCount,
-        executeBindingProperties.RequiredDescriptorCount);
+    UINT descriptorCount =
+        std::max(initializeBindingProperties.RequiredDescriptorCount, executeBindingProperties.RequiredDescriptorCount);
 
     // Create descriptor heaps.
     ComPtr<ID3D12DescriptorHeap> descriptorHeap;
@@ -303,9 +263,8 @@ void DirectMLProcessor::ElementWiseAdd(std::string src0, std::string src1, std::
     descriptorHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
     descriptorHeapDesc.NumDescriptors = descriptorCount;
     descriptorHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-    THROW_IF_FAILED(m_d3D12Device->CreateDescriptorHeap(
-        &descriptorHeapDesc,
-        IID_PPV_ARGS(descriptorHeap.GetAddressOf())));
+    THROW_IF_FAILED(
+        m_d3D12Device->CreateDescriptorHeap(&descriptorHeapDesc, IID_PPV_ARGS(descriptorHeap.GetAddressOf())));
 
     // Set the descriptor heap(s).
     ID3D12DescriptorHeap *d3D12DescriptorHeaps[] = {descriptorHeap.Get()};
@@ -319,24 +278,19 @@ void DirectMLProcessor::ElementWiseAdd(std::string src0, std::string src1, std::
     dmlBindingTableDesc.SizeInDescriptors = descriptorCount;
 
     ComPtr<IDMLBindingTable> dmlBindingTable;
-    THROW_IF_FAILED(m_dmlDevice->CreateBindingTable(
-        &dmlBindingTableDesc,
-        IID_PPV_ARGS(dmlBindingTable.GetAddressOf())));
+    THROW_IF_FAILED(
+        m_dmlDevice->CreateBindingTable(&dmlBindingTableDesc, IID_PPV_ARGS(dmlBindingTable.GetAddressOf())));
 
-    UINT64 temporaryResourceSize = std::max(
-        initializeBindingProperties.TemporaryResourceSize,
-        executeBindingProperties.TemporaryResourceSize);
+    UINT64 temporaryResourceSize =
+        std::max(initializeBindingProperties.TemporaryResourceSize, executeBindingProperties.TemporaryResourceSize);
 
     ComPtr<ID3D12Resource> temporaryBuffer;
     if (temporaryResourceSize != 0)
     {
         THROW_IF_FAILED(m_d3D12Device->CreateCommittedResource(
-            &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
-            D3D12_HEAP_FLAG_NONE,
+            &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT), D3D12_HEAP_FLAG_NONE,
             &CD3DX12_RESOURCE_DESC::Buffer(temporaryResourceSize, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS),
-            D3D12_RESOURCE_STATE_COMMON,
-            nullptr,
-            IID_PPV_ARGS(temporaryBuffer.GetAddressOf())));
+            D3D12_RESOURCE_STATE_COMMON, nullptr, IID_PPV_ARGS(temporaryBuffer.GetAddressOf())));
 
         if (initializeBindingProperties.TemporaryResourceSize != 0)
         {
@@ -352,12 +306,9 @@ void DirectMLProcessor::ElementWiseAdd(std::string src0, std::string src1, std::
     if (persistentResourceSize != 0)
     {
         THROW_IF_FAILED(m_d3D12Device->CreateCommittedResource(
-            &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
-            D3D12_HEAP_FLAG_NONE,
+            &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT), D3D12_HEAP_FLAG_NONE,
             &CD3DX12_RESOURCE_DESC::Buffer(persistentResourceSize, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS),
-            D3D12_RESOURCE_STATE_COMMON,
-            nullptr,
-            IID_PPV_ARGS(persistentBuffer.GetAddressOf())));
+            D3D12_RESOURCE_STATE_COMMON, nullptr, IID_PPV_ARGS(persistentBuffer.GetAddressOf())));
 
         // The persistent resource should be bound as the output to the IDMLOperatorInitializer.
         DML_BUFFER_BINDING bufferBinding{persistentBuffer.Get(), 0, persistentResourceSize};
@@ -367,18 +318,14 @@ void DirectMLProcessor::ElementWiseAdd(std::string src0, std::string src1, std::
 
     // The command recorder is a stateless object that records Dispatches into an existing Direct3D 12 command list.
     ComPtr<IDMLCommandRecorder> dmlCommandRecorder;
-    THROW_IF_FAILED(m_dmlDevice->CreateCommandRecorder(
-        IID_PPV_ARGS(dmlCommandRecorder.GetAddressOf())));
+    THROW_IF_FAILED(m_dmlDevice->CreateCommandRecorder(IID_PPV_ARGS(dmlCommandRecorder.GetAddressOf())));
 
     // Record execution of the operator initializer.
-    dmlCommandRecorder->RecordDispatch(
-        m_commandList.Get(),
-        dmlOpInitializer.Get(),
-        dmlBindingTable.Get());
+    dmlCommandRecorder->RecordDispatch(m_commandList.Get(), dmlOpInitializer.Get(), dmlBindingTable.Get());
 
     // Close the Direct3D 12 command list, and submit it for execution as you would any other command list. You could
-    // in principle record the execution into the same command list as the initialization, but you need only to Initialize
-    // once, and typically you want to Execute an operator more frequently than that.
+    // in principle record the execution into the same command list as the initialization, but you need only to
+    // Initialize once, and typically you want to Execute an operator more frequently than that.
     CloseExecuteResetWait();
 
     //
@@ -426,12 +373,9 @@ void DirectMLProcessor::ElementWiseAdd(std::string src0, std::string src1, std::
     // std::cout << "Tensor dst: " << dst << " : " << m_tensorResourceMap[dst].GetAddressOf() << std::endl;
     // ComPtr<ID3D12Resource> outputBuffer;
     THROW_IF_FAILED(m_d3D12Device->CreateCommittedResource(
-        &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
-        D3D12_HEAP_FLAG_NONE,
+        &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT), D3D12_HEAP_FLAG_NONE,
         &CD3DX12_RESOURCE_DESC::Buffer(m_tensorBufferSize, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS),
-        D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
-        nullptr,
-        IID_PPV_ARGS(m_outputBuffer[0].GetAddressOf())));
+        D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr, IID_PPV_ARGS(m_outputBuffer[0].GetAddressOf())));
 
     DML_BUFFER_BINDING outputBufferBinding{m_outputBuffer[0].Get(), 0, m_tensorBufferSize};
     DML_BINDING_DESC outputBindingDesc{DML_BINDING_TYPE_BUFFER, &outputBufferBinding};
