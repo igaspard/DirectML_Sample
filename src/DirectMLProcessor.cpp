@@ -79,6 +79,18 @@ void DirectMLProcessor::InitializeDirectML(bool forceNpu)
         std::wcout << L"FP16 is not supported." << std::endl;
     }
 
+    DML_FEATURE_QUERY_TENSOR_DATA_TYPE_SUPPORT int8Query = {DML_TENSOR_DATA_TYPE_INT8};
+    DML_FEATURE_DATA_TENSOR_DATA_TYPE_SUPPORT int8Supported = {};
+    THROW_IF_FAILED(m_dmlDevice->CheckFeatureSupport(DML_FEATURE_TENSOR_DATA_TYPE_SUPPORT, sizeof(int8Query),
+                                                     &int8Query, sizeof(int8Supported), &int8Supported));
+    if (int8Supported.IsSupported)
+    {
+        std::wcout << L"INT8 is supported." << std::endl;
+    }
+    else
+    {
+        std::wcout << L"INT8 is not supported." << std::endl;
+    }
     // for (int i = DML_TENSOR_DATA_TYPE_UNKNOWN; i <= DML_TENSOR_DATA_TYPE_INT64; ++i)
     // {
     //     DML_TENSOR_DATA_TYPE type = static_cast<DML_TENSOR_DATA_TYPE>(i);
@@ -123,7 +135,7 @@ void DirectMLProcessor::SetTensorData(std::string name, uint32_t *shapes, DML_TE
             m_tensorInfoMap[name]->shapes[i] = shapes[i];
 
         m_tensorInfoMap[name]->elementCount = shapes[0] * shapes[1] * shapes[2] * shapes[3];
-        m_tensorInfoMap[name]->desc = {DML_TENSOR_DATA_TYPE_FLOAT32, {shapes[0], shapes[1], shapes[2], shapes[3]}};
+        m_tensorInfoMap[name]->desc = {type, {shapes[0], shapes[1], shapes[2], shapes[3]}};
         std::wcout << "Tensor Buffer Size: " << m_tensorInfoMap[name]->desc.totalTensorSizeInBytes << std::endl;
 
         THROW_IF_FAILED(m_d3D12Device->CreateCommittedResource(
@@ -132,14 +144,12 @@ void DirectMLProcessor::SetTensorData(std::string name, uint32_t *shapes, DML_TE
                                            D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS),
             D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(tensorResource.GetAddressOf())));
         m_tensorInfoMap[name]->resource = tensorResource;
-        std::cout << "Tensor " << name << " created: " << m_tensorInfoMap[name]->resource.GetAddressOf() << std::endl;
 
         THROW_IF_FAILED(m_d3D12Device->CreateCommittedResource(
             &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD), D3D12_HEAP_FLAG_NONE,
             &CD3DX12_RESOURCE_DESC::Buffer(m_tensorInfoMap[name]->desc.totalTensorSizeInBytes),
             D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(uploadBuffer.GetAddressOf())));
         m_tensorInfoMap[name]->uploadResource = uploadBuffer;
-        std::cout << "Upload Buffer created: " << m_tensorInfoMap[name]->uploadResource.GetAddressOf() << std::endl;
     }
     else
     {
@@ -193,16 +203,6 @@ void DirectMLProcessor::GetTensorData(std::string name, uint32_t *shapes, DML_TE
     THROW_IF_FAILED(readbackBuffer->Map(0, &tensorBufferRange, reinterpret_cast<void **>(&outputBufferData)));
 
     memcpy(data, outputBufferData, size);
-
-    // std::wstring outputString = L"output tensor: ";
-    // for (size_t tensorElementIndex{0}; tensorElementIndex < m_tensorInfoMap[name]->elementCount;
-    //      ++tensorElementIndex, ++outputBufferData)
-    // {
-    //     outputString += std::to_wstring(*outputBufferData) + L' ';
-    // }
-
-    // std::wcout << outputString << std::endl;
-    // OutputDebugStringW(outputString.c_str());
 
     D3D12_RANGE emptyRange{0, 0};
     readbackBuffer->Unmap(0, &emptyRange);

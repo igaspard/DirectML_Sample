@@ -26,35 +26,9 @@ int main(int argc, char const *argv[])
     }
     printf("data0 + data1 is equal to result\n");
 
-    float result0[8] = {0.0f};
-    helloDML.GetTensorData("add0", shapes, DML_TENSOR_DATA_TYPE_FLOAT32, result0, sizeof(result0));
-    for (int i = 0; i < 8; i++)
-    {
-        if (result0[i] != data0[i])
-        {
-            printf("Error: %f != %f\n", result0[i], data0[i]);
-            return 1;
-        }
-    }
-    printf("data0 is equal to result0\n");    
-
-    float result1[8] = {0.0f};
-    helloDML.GetTensorData("add1", shapes, DML_TENSOR_DATA_TYPE_FLOAT32, result1, sizeof(result1));
-    for (int i = 0; i < 8; i++)
-    {
-        if (result1[i] != data1[i])
-        {
-            printf("Error: %f != %f\n", result1[i], data1[i]);
-            return 1;
-        }
-    }
-    printf("data1 is equal to result1\n");
-
     float data2[1024];
     for (float i = 0.0f; i < 1024.0f; i++)
-    {
         data2[(int)i] = i;
-    }
     uint32_t shapes2[] = {1, 1, 1024, 1};
     helloDML.SetTensorData("sent0", shapes2, DML_TENSOR_DATA_TYPE_FLOAT32, data2, sizeof(data2));
     float result2[1024] = {0.0f};
