@@ -42,11 +42,8 @@ class DirectMLProcessor
     uint32_t m_tensorSizes[4];
     dml::TensorDesc m_desc;
 
-    // std::unordered_map<std::string, Microsoft::WRL::ComPtr<ID3D12Resource>> m_tensorResourceMap;
-
-    static const size_t c_numInputs = 2;
-    Microsoft::WRL::ComPtr<ID3D12Resource> m_uploadBuffer[c_numInputs];
-    Microsoft::WRL::ComPtr<ID3D12Resource> m_inputBuffer[c_numInputs];
+    std::unordered_map<std::string, Microsoft::WRL::ComPtr<ID3D12Resource>> m_tensorResourceMap;
+    std::unordered_map<std::string, Microsoft::WRL::ComPtr<ID3D12Resource>> m_tensorUploadResourceMap;
 
     static const size_t c_numOutputs = 2;
     Microsoft::WRL::ComPtr<ID3D12Resource> m_outputBuffer[c_numOutputs];
