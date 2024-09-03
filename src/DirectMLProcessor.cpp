@@ -130,12 +130,9 @@ void DirectMLProcessor::SetTensorData(std::string name, uint32_t *shapes, DML_TE
     {
         std::cout << "Tensor " << name << " not found" << std::endl;
         m_tensorInfoMap[name] = new TensorInfo();
-
-        for (int i = 0; i < 4; i++)
-            m_tensorInfoMap[name]->shapes[i] = shapes[i];
-
+        m_tensorInfoMap[name]->dimensions = {shapes[0], shapes[1], shapes[2], shapes[3]};
         m_tensorInfoMap[name]->elementCount = shapes[0] * shapes[1] * shapes[2] * shapes[3];
-        m_tensorInfoMap[name]->desc = {type, {shapes[0], shapes[1], shapes[2], shapes[3]}};
+        m_tensorInfoMap[name]->desc = {type, m_tensorInfoMap[name]->dimensions};
         std::wcout << "Tensor Buffer Size: " << m_tensorInfoMap[name]->desc.totalTensorSizeInBytes << std::endl;
 
         THROW_IF_FAILED(m_d3D12Device->CreateCommittedResource(
@@ -187,8 +184,8 @@ void DirectMLProcessor::GetTensorData(std::string name, uint32_t *shapes, DML_TE
     ComPtr<ID3D12Resource> readbackBuffer;
     THROW_IF_FAILED(m_d3D12Device->CreateCommittedResource(
         &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_READBACK), D3D12_HEAP_FLAG_NONE,
-        &CD3DX12_RESOURCE_DESC::Buffer(m_tensorInfoMap[name]->desc.totalTensorSizeInBytes), D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
-        IID_PPV_ARGS(readbackBuffer.GetAddressOf())));
+        &CD3DX12_RESOURCE_DESC::Buffer(m_tensorInfoMap[name]->desc.totalTensorSizeInBytes),
+        D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(readbackBuffer.GetAddressOf())));
 
     m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(m_tensorInfoMap[name]->resource.Get(),
                                                                             D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
@@ -208,18 +205,70 @@ void DirectMLProcessor::GetTensorData(std::string name, uint32_t *shapes, DML_TE
     readbackBuffer->Unmap(0, &emptyRange);
 }
 
-void DirectMLProcessor::ElementWiseAdd(std::string src0, std::string src1, std::string dst)
+bool DirectMLProcessor::CanBroadcast(const dml::TensorDimensions &a, const dml::TensorDimensions &b)
+{
+    if (a != b)
+    {
+        return (a[0] % b[0] == 0) && (a[1] % b[1] == 0) && (a[2] % b[2] == 0) && (a[3] % b[3] == 0);
+    }
+    else
+    {
+        return true;
+    }
+}
+
+dml::Expression DirectMLProcessor::ReshapeAndBroadcastTensor(dml::Expression originalTensor,
+                                                             const dml::TensorDimensions &targetShape)
+{
+
+    const auto &originalShape = originalTensor.GetOutputDesc().sizes;
+
+    // Step 1: Reshape the original tensor if necessary
+    dml::Expression reshapedTensor = originalTensor;
+    if (originalShape.size() != targetShape.size())
+    {
+        // Pad the original shape with 1s to match the target shape's rank
+        dml::TensorDimensions paddedShape(targetShape.size(), 1);
+        std::copy(originalShape.rbegin(), originalShape.rend(), paddedShape.rbegin());
+        reshapedTensor = dml::Reinterpret(originalTensor, paddedShape, dml::NullOpt);
+    }
+
+    // Step 2: Broadcast the reshaped tensor
+    dml::TensorDimensions repeats(targetShape.size(), 1);
+    for (size_t i = 0; i < targetShape.size(); ++i)
+    {
+        if (reshapedTensor.GetOutputDesc().sizes[i] == 1 && targetShape[i] != 1)
+        {
+            repeats[i] = targetShape[i];
+        }
+    }
+
+    return dml::Tile(reshapedTensor, repeats);
+}
+
+void DirectMLProcessor::ElementWiseAddBcast(std::string src0, std::string src1, std::string dst)
 {
     if (m_tensorInfoMap.find(src0) == m_tensorInfoMap.end() || m_tensorInfoMap.find(src1) == m_tensorInfoMap.end() ||
-        m_tensorInfoMap.find(dst) == m_tensorInfoMap.end()) 
+        m_tensorInfoMap.find(dst) == m_tensorInfoMap.end())
     {
         std::cout << "Tensor not found" << std::endl;
         return;
     }
-    
+
     dml::Graph graph(m_dmlDevice.Get());
     dml::Expression input = dml::InputTensor(graph, 0, m_tensorInfoMap[src0]->desc);
-    dml::Expression input2 = dml::InputTensor(graph, 1, m_tensorInfoMap[src1]->desc);
+    dml::Expression input2;
+    if (m_tensorInfoMap[src0]->dimensions != m_tensorInfoMap[src1]->dimensions)
+    {
+        assert(CanBroadcast(m_tensorInfoMap[src0]->dimensions, m_tensorInfoMap[src1]->dimensions));
+        std::cout << "Tensor shapes do not match, might need Broadcasting" << std::endl;
+        input2 = ReshapeAndBroadcastTensor(dml::InputTensor(graph, 1, m_tensorInfoMap[src1]->desc),
+                                           m_tensorInfoMap[src0]->dimensions);
+    }
+    else
+    {
+        input2 = dml::InputTensor(graph, 1, m_tensorInfoMap[src1]->desc);
+    }
     dml::Expression output = dml::Add(input, input2);
 
     ComPtr<IDMLCompiledOperator> dmlCompiledOperator;
@@ -336,18 +385,21 @@ void DirectMLProcessor::ElementWiseAdd(std::string src0, std::string src1, std::
     }
 
     // Create tensor buffers for output/readback of the tensor elements.
-    
-    DML_BUFFER_BINDING inputBufferBinding{m_tensorInfoMap[src0]->resource.Get(), 0, m_tensorInfoMap[src0]->desc.totalTensorSizeInBytes};
+
+    DML_BUFFER_BINDING inputBufferBinding{m_tensorInfoMap[src0]->resource.Get(), 0,
+                                          m_tensorInfoMap[src0]->desc.totalTensorSizeInBytes};
     DML_BINDING_DESC inputBindingDesc{DML_BINDING_TYPE_BUFFER, &inputBufferBinding};
 
-    DML_BUFFER_BINDING inputBufferBinding2{m_tensorInfoMap[src1]->resource.Get(), 0, m_tensorInfoMap[src1]->desc.totalTensorSizeInBytes};
+    DML_BUFFER_BINDING inputBufferBinding2{m_tensorInfoMap[src1]->resource.Get(), 0,
+                                           m_tensorInfoMap[src1]->desc.totalTensorSizeInBytes};
     DML_BINDING_DESC inputBindingDesc2{DML_BINDING_TYPE_BUFFER, &inputBufferBinding2};
 
     DML_BINDING_DESC inputBindingDescs[] = {inputBindingDesc, inputBindingDesc2};
     dmlBindingTable->BindInputs(2, inputBindingDescs);
     std::cout << "Binding inputs" << std::endl;
 
-    DML_BUFFER_BINDING outputBufferBinding{m_tensorInfoMap[dst]->resource.Get(), 0, m_tensorInfoMap[dst]->desc.totalTensorSizeInBytes};
+    DML_BUFFER_BINDING outputBufferBinding{m_tensorInfoMap[dst]->resource.Get(), 0,
+                                           m_tensorInfoMap[dst]->desc.totalTensorSizeInBytes};
     DML_BINDING_DESC outputBindingDesc{DML_BINDING_TYPE_BUFFER, &outputBufferBinding};
     dmlBindingTable->BindOutputs(1, &outputBindingDesc);
     std::cout << "Binding outputs" << std::endl;
@@ -357,5 +409,16 @@ void DirectMLProcessor::ElementWiseAdd(std::string src0, std::string src1, std::
     std::cout << "Record Dispatch" << std::endl;
 
     CloseExecuteResetWait();
-    std::wcout << "Exit ElementWiseAdd" << std::endl;
+    std::wcout << "Exit ElementWiseAddBcast" << std::endl;
+}
+
+void DirectMLProcessor::FreeResources()
+{
+    for (auto &tensor : m_tensorInfoMap)
+    {
+        tensor.second->resource.Reset();
+        tensor.second->uploadResource.Reset();
+        delete tensor.second;
+    }
+    m_tensorInfoMap.clear();
 }

@@ -15,7 +15,7 @@ struct TensorInfo
 {
     uint64_t bufferSize;
     uint32_t elementCount;
-    uint32_t shapes[4];
+    dml::TensorDimensions dimensions;
     dml::TensorDesc desc;
 
     Microsoft::WRL::ComPtr<ID3D12Resource> resource;
@@ -35,11 +35,16 @@ class DirectMLProcessor
     void SetTensorData(std::string name, uint32_t *shapes, DML_TENSOR_DATA_TYPE type, const void *data, size_t size);
     void GetTensorData(std::string name, uint32_t *shapes, DML_TENSOR_DATA_TYPE type, void *data, size_t size);
 
-    void ElementWiseAdd(std::string src0, std::string src1, std::string dst);
+    void ElementWiseAddBcast(std::string src0, std::string src1, std::string dst);
+
+    void FreeResources();
 
   private:
     void InitializeDirectML(bool forceNpu);
     void CloseExecuteResetWait();
+
+    bool CanBroadcast(const dml::TensorDimensions &a, const dml::TensorDimensions &b);
+    dml::Expression ReshapeAndBroadcastTensor(dml::Expression originalTensor, const dml::TensorDimensions &targetShape);
 
     Microsoft::WRL::ComPtr<ID3D12Device> m_d3D12Device;
     Microsoft::WRL::ComPtr<ID3D12CommandQueue> m_commandQueue;

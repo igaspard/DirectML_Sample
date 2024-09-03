@@ -11,7 +11,7 @@ int main(int argc, char const *argv[])
     helloDML.SetTensorData("add0", shapes, DML_TENSOR_DATA_TYPE_FLOAT32, data0, sizeof(data0));
     helloDML.SetTensorData("add1", shapes, DML_TENSOR_DATA_TYPE_FLOAT32, data1, sizeof(data1));
     helloDML.SetTensorData("dst", shapes, DML_TENSOR_DATA_TYPE_FLOAT32, zeroArray, sizeof(zeroArray));
-    helloDML.ElementWiseAdd("add0", "add1", "dst");
+    helloDML.ElementWiseAddBcast("add0", "add1", "dst");
 
     float result[8];
     helloDML.GetTensorData("dst", shapes, DML_TENSOR_DATA_TYPE_FLOAT32, result, sizeof(result));
@@ -42,6 +42,26 @@ int main(int argc, char const *argv[])
         }
     }
     printf("data2 is equal to result2\n");
+
+
+    float data3[1] = {1.0f};
+    uint32_t shapes3[] = {1, 1, 1, 1};
+    helloDML.SetTensorData("add2", shapes3, DML_TENSOR_DATA_TYPE_FLOAT32, data3, sizeof(data3));
+    helloDML.ElementWiseAddBcast("add0", "add2", "dst");
+
+    helloDML.GetTensorData("dst", shapes, DML_TENSOR_DATA_TYPE_FLOAT32, result, sizeof(result));
+    for (int i = 0; i < 8; i++)
+    {
+        printf("%f\n", result[i]);
+        if (result[i] != data0[i] + data3[0])
+        {
+            printf("Error: %f != %f + %f\n", result[i], data0[i], data3[0]);
+            return 1;
+        }
+    }
+    printf("broadcast add is equal to result\n");
+
+    helloDML.FreeResources();
 
     return 0;
 }
