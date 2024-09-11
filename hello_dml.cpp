@@ -2,7 +2,8 @@
 
 int main(int argc, char const *argv[])
 {
-    DirectMLProcessor helloDML;
+    std::string adapterNameFilter = (argc > 1) ? argv[1] : "NPU";
+    DirectMLProcessor helloDML(adapterNameFilter);
     uint32_t shapes[] = {1, 1, 8, 1};
     float data0[] = {0.0202845, 0.704157, 0.12591, 0.101374, 0.863722, -0.915456, 0.333993, -0.123652};
     float data1[] = {-0.29151, -0.623414, -0.913637, -0.737006, 0.144149, -0.834521, -0.509416, 0.899506};
@@ -20,7 +21,7 @@ int main(int argc, char const *argv[])
         printf("%f\n", result[i]);
         if (result[i] != data0[i] + data1[i])
         {
-            printf("Error: %f != %f + %f\n", result[i], data0[i], data1[i]);
+            printf("Error: %f != %f + %f, expected %f\n", result[i], data0[i], data1[i], data0[i] + data1[i]);
             return 1;
         }
     }

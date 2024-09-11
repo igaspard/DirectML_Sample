@@ -2,11 +2,11 @@
 
 #define NOMINMAX
 
-#include "d3dx12.h"
+#include <d3dx12.h>
 #include <dxgi1_4.h>
 #include <wil/resource.h>
-
-#include <DirectML.h> // The DirectML header from the Windows SDK.
+#include <stdexcept>
+#include <DirectML.h>
 #include <DirectMLX.h>
 #include <string>
 #include <unordered_map>
@@ -25,9 +25,9 @@ struct TensorInfo
 class DirectMLProcessor
 {
   public:
-    DirectMLProcessor(bool forceNpu = true)
+    DirectMLProcessor(std::string adapterNameFilter = "NPU")
     {
-        InitializeDirectML(forceNpu);
+        InitializeDirectML(adapterNameFilter);
     } // Constructor
 
     ~DirectMLProcessor(); // Destructor
@@ -40,7 +40,7 @@ class DirectMLProcessor
     void FreeResources();
 
   private:
-    void InitializeDirectML(bool forceNpu);
+    void InitializeDirectML(std::string adapterNameFilter);
     void CloseExecuteResetWait();
 
     bool CanBroadcast(const dml::TensorDimensions &a, const dml::TensorDimensions &b);

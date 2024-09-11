@@ -14,36 +14,115 @@ DirectMLProcessor::~DirectMLProcessor()
 {
 }
 
-void DirectMLProcessor::InitializeDirectML(bool forceNpu)
+std::tuple<Microsoft::WRL::ComPtr<IDXCoreAdapter>, D3D_FEATURE_LEVEL> SelectAdapter(std::string_view adapterNameFilter)
 {
-    ComPtr<IDXCoreAdapterFactory> factory;
-    ::DXCoreCreateAdapterFactory(IID_PPV_ARGS(&factory));
-    ComPtr<IDXCoreAdapter> adapter;
-    if (factory)
-    {
-        const GUID dxGUIDs[] = {DXCORE_ADAPTER_ATTRIBUTE_D3D12_CORE_COMPUTE};
-        ComPtr<IDXCoreAdapterList> adapterList;
-        THROW_IF_FAILED(factory->CreateAdapterList(ARRAYSIZE(dxGUIDs), dxGUIDs, IID_PPV_ARGS(&adapterList)));
-        for (uint32_t i = 0, adapterCount = adapterList->GetAdapterCount(); i < adapterCount; i++)
-        {
-            ComPtr<IDXCoreAdapter> currentGpuAdapter;
-            THROW_IF_FAILED(adapterList->GetAdapter(static_cast<uint32_t>(i), IID_PPV_ARGS(&currentGpuAdapter)));
+    using Microsoft::WRL::ComPtr;
 
-            if (forceNpu && currentGpuAdapter->IsAttributeSupported(DXCORE_ADAPTER_ATTRIBUTE_D3D12_CORE_COMPUTE))
-            {
-                adapter = std::move(currentGpuAdapter);
-                break;
-            }
-            else
-            {
-                adapter = std::move(currentGpuAdapter);
-                break;
-            }
+    ComPtr<IDXCoreAdapterFactory> adapterFactory;
+    THROW_IF_FAILED(DXCoreCreateAdapterFactory(IID_PPV_ARGS(adapterFactory.GetAddressOf())));
+
+    // First try getting all GENERIC_ML devices, which is the broadest set of adapters
+    // and includes both GPUs and NPUs; however, running this sample on an older build of
+    // Windows may not have drivers that report GENERIC_ML.
+    D3D_FEATURE_LEVEL featureLevel = D3D_FEATURE_LEVEL_1_0_GENERIC;
+    ComPtr<IDXCoreAdapterList> adapterList;
+    THROW_IF_FAILED(
+        adapterFactory->CreateAdapterList(1, &DXCORE_ADAPTER_ATTRIBUTE_D3D12_GENERIC_ML, adapterList.GetAddressOf()));
+
+    // Fall back to CORE_COMPUTE if GENERIC_ML devices are not available. This is a more restricted
+    // set of adapters and may filter out some NPUs.
+    if (adapterList->GetAdapterCount() == 0)
+    {
+        std::cout << "No GENERIC_ML adapters found. Falling back to CORE_COMPUTE.\n";
+        featureLevel = D3D_FEATURE_LEVEL_1_0_CORE;
+        THROW_IF_FAILED(adapterFactory->CreateAdapterList(1, &DXCORE_ADAPTER_ATTRIBUTE_D3D12_CORE_COMPUTE,
+                                                          adapterList.GetAddressOf()));
+    }
+
+    if (adapterList->GetAdapterCount() == 0)
+    {
+        throw std::runtime_error("No compatible adapters found.");
+    }
+
+    // Sort the adapters by preference, with hardware and high-performance adapters first.
+    DXCoreAdapterPreference preferences[] = {DXCoreAdapterPreference::Hardware,
+                                             DXCoreAdapterPreference::HighPerformance};
+
+    THROW_IF_FAILED(adapterList->Sort(_countof(preferences), preferences));
+
+    std::vector<ComPtr<IDXCoreAdapter>> adapters;
+    std::vector<std::string> adapterDescriptions;
+    std::optional<uint32_t> firstAdapterMatchingNameFilter;
+
+    for (uint32_t i = 0; i < adapterList->GetAdapterCount(); i++)
+    {
+        ComPtr<IDXCoreAdapter> adapter;
+        THROW_IF_FAILED(adapterList->GetAdapter(i, adapter.GetAddressOf()));
+
+        size_t descriptionSize;
+        THROW_IF_FAILED(adapter->GetPropertySize(DXCoreAdapterProperty::DriverDescription, &descriptionSize));
+
+        std::string adapterDescription(descriptionSize, '\0');
+        THROW_IF_FAILED(
+            adapter->GetProperty(DXCoreAdapterProperty::DriverDescription, descriptionSize, adapterDescription.data()));
+
+        // Remove trailing null terminator written by DXCore.
+        while (!adapterDescription.empty() && adapterDescription.back() == '\0')
+        {
+            adapterDescription.pop_back();
+        }
+
+        if (adapter->IsAttributeSupported(DXCORE_ADAPTER_ATTRIBUTE_D3D12_CORE_COMPUTE))
+        {
+            adapterDescription += " (CORE_COMPUTE)";
+        }
+        if (adapter->IsAttributeSupported(DXCORE_ADAPTER_ATTRIBUTE_D3D12_GENERIC_ML))
+        {
+            adapterDescription += " (GENERIC_ML)";
+        }
+
+        adapters.push_back(adapter);
+        adapterDescriptions.push_back(adapterDescription);
+
+        if (!firstAdapterMatchingNameFilter && adapterDescription.find(adapterNameFilter) != std::string::npos)
+        {
+            firstAdapterMatchingNameFilter = i;
+            std::cout << "Adapter[" << i << "]: " << adapterDescription << " (SELECTED)\n";
+        }
+        else
+        {
+            std::cout << "Adapter[" << i << "]: " << adapterDescription << "\n";
         }
     }
 
-    THROW_IF_FAILED(D3D12CreateDevice(adapter.Get(), D3D_FEATURE_LEVEL_1_0_CORE,
-                                      IID_PPV_ARGS(m_d3D12Device.ReleaseAndGetAddressOf())));
+    if (!firstAdapterMatchingNameFilter)
+    {
+        throw std::invalid_argument("No adapters match the provided name filter.");
+    }
+    std::cout << "Selected adapter: " << adapterDescriptions[*firstAdapterMatchingNameFilter]
+              << " index: " << *firstAdapterMatchingNameFilter << std::endl;
+    return {adapters[*firstAdapterMatchingNameFilter], featureLevel};
+}
+
+void DirectMLProcessor::InitializeDirectML(std::string adapterNameFilter)
+{
+    auto [adapter, featureLevel] = SelectAdapter(adapterNameFilter);
+    std::cout << "FeatureLevel: " << featureLevel << std::endl;
+    Microsoft::WRL::ComPtr<ID3D12Device> d3d12Device;
+    THROW_IF_FAILED(D3D12CreateDevice(adapter.Get(), featureLevel, IID_PPV_ARGS(&d3d12Device)));
+    std::cout << "Direct3D 12 device created" << std::endl;
+    Microsoft::WRL::ComPtr<IDMLDevice> dmlDevice;
+    THROW_IF_FAILED(DMLCreateDevice(d3d12Device.Get(), DML_CREATE_DEVICE_FLAG_NONE, IID_PPV_ARGS(&dmlDevice)));
+    std::cout << "DirectML device created" << std::endl;
+
+    m_d3D12Device = d3d12Device;
+    m_dmlDevice = dmlDevice;
+
+    // THROW_IF_FAILED(D3D12CreateDevice(adapter.Get(), featureLevel,
+    //                                   IID_PPV_ARGS(m_d3D12Device.ReleaseAndGetAddressOf())));
+
+    // THROW_IF_FAILED(
+    //     DMLCreateDevice(m_d3D12Device.Get(), DML_CREATE_DEVICE_FLAG_NONE, IID_PPV_ARGS(m_dmlDevice.GetAddressOf())));
 
     D3D12_COMMAND_QUEUE_DESC commandQueueDesc{};
     commandQueueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
@@ -57,14 +136,6 @@ void DirectMLProcessor::InitializeDirectML(bool forceNpu)
 
     THROW_IF_FAILED(m_d3D12Device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, m_commandAllocator.Get(),
                                                      nullptr, IID_PPV_ARGS(m_commandList.ReleaseAndGetAddressOf())));
-
-    DML_CREATE_DEVICE_FLAGS dmlCreateDeviceFlags = DML_CREATE_DEVICE_FLAG_NONE;
-#if defined(_DEBUG)
-    // If the project is in a debug build, then enable debugging via DirectML debug layers with this flag.
-    dmlCreateDeviceFlags |= DML_CREATE_DEVICE_FLAG_DEBUG;
-#endif
-    THROW_IF_FAILED(
-        DMLCreateDevice(m_d3D12Device.Get(), dmlCreateDeviceFlags, IID_PPV_ARGS(m_dmlDevice.GetAddressOf())));
 
     DML_FEATURE_QUERY_TENSOR_DATA_TYPE_SUPPORT fp16Query = {DML_TENSOR_DATA_TYPE_FLOAT16};
     DML_FEATURE_DATA_TENSOR_DATA_TYPE_SUPPORT fp16Supported = {};
